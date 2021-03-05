@@ -564,6 +564,42 @@ vpc: #@ data.values.vpc
 	})
 }
 
+func TestSchemaInLibraryModule(t *testing.T) {
+	configTplData := []byte(`
+#@ load("@ytt:template", "template")
+#@ load("@ytt:library", "library")
+--- #@ template.replace(library.get("lib").eval())`)
+
+	valuesData := []byte(`
+#@library/ref "@lib"
+#@data/values
+---
+foo: 7
+`)
+
+	libConfigTplData := []byte(`
+#@ load("@ytt:data", "data")
+---
+foo: #@ data.values.foo`)
+
+	libSchemaData := []byte(`
+#@schema/match data_values=True
+---
+foo: 42`)
+
+	expectedYAMLTplData := `foo: 7
+`
+
+	filesToProcess := files.NewSortedFiles([]*files.File{
+		files.MustNewFileFromSource(files.NewBytesSource("config.yml", configTplData)),
+		files.MustNewFileFromSource(files.NewBytesSource("values.yml", valuesData)),
+		files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/config2.yml", libConfigTplData)),
+		files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/schema.yml", libSchemaData)),
+	})
+
+	runAndCompare(t, filesToProcess, expectedYAMLTplData)
+}
+
 func TestNoSchemaProvided(t *testing.T) {
 	opts := cmdtpl.NewOptions()
 	opts.SchemaEnabled = true
