@@ -183,8 +183,23 @@ func (l *libraryValue) Eval(thread *starlark.Thread, f *starlark.Builtin,
 	}
 
 	libraryLoader := l.libraryExecutionFactory.New(l.libraryCtx)
+	var currSchema Schema
 
-	astValues, libValues, err := l.libraryValues(libraryLoader)
+	// TODO check the schema feature flag
+	schemaDocs, err := libraryLoader.Schemas()
+	if err != nil {
+		return starlark.None, err
+	}
+	if len(schemaDocs) > 0 {
+		currSchema, err = schema.NewDocumentSchema(schemaDocs[0])
+		if err != nil {
+			return starlark.None, err
+		}
+	} else {
+		currSchema = &schema.AnySchema{}
+	}
+
+	astValues, libValues, err := l.libraryValues(libraryLoader, currSchema)
 	if err != nil {
 		return starlark.None, err
 	}
@@ -206,7 +221,7 @@ func (l *libraryValue) DataValues(thread *starlark.Thread, f *starlark.Builtin,
 
 	libraryLoader := l.libraryExecutionFactory.New(l.libraryCtx)
 
-	astValues, _, err := l.libraryValues(libraryLoader)
+	astValues, _, err := l.libraryValues(libraryLoader, &schema.AnySchema{})
 	if err != nil {
 		return starlark.None, err
 	}
@@ -230,7 +245,7 @@ func (l *libraryValue) Export(thread *starlark.Thread, f *starlark.Builtin,
 
 	libraryLoader := l.libraryExecutionFactory.New(l.libraryCtx)
 
-	astValues, libValues, err := l.libraryValues(libraryLoader)
+	astValues, libValues, err := l.libraryValues(libraryLoader, &schema.AnySchema{})
 	if err != nil {
 		return starlark.None, err
 	}
@@ -301,7 +316,7 @@ func (l *libraryValue) exportArgs(args starlark.Tuple, kwargs []starlark.Tuple) 
 	return symbolName, locationPath, nil
 }
 
-func (l *libraryValue) libraryValues(ll *LibraryLoader) (*DataValues, []*DataValues, error) {
+func (l *libraryValue) libraryValues(ll *LibraryLoader, schema Schema) (*DataValues, []*DataValues, error) {
 	var dvss, afterLibModDVss, childDVss []*DataValues
 	for _, dv := range l.dataValuess {
 		matchingDVs := dv.UsedInLibrary(LibRefPiece{Path: l.path, Alias: l.alias})
@@ -318,7 +333,9 @@ func (l *libraryValue) libraryValues(ll *LibraryLoader) (*DataValues, []*DataVal
 		}
 	}
 
-	dvs, foundChildDVss, err := ll.Values(append(dvss, afterLibModDVss...), &schema.AnySchema{})
+	// this is where private libraries get data values evaluated
+	// dvss is the root data values that reference a @library/ref
+	dvs, foundChildDVss, err := ll.Values(append(dvss, afterLibModDVss...), schema)
 	if err != nil {
 		return nil, nil, err
 	}
