@@ -56,6 +56,13 @@ func (o DataValuesPreProcessing) apply(files []*FileInLibrary) (*DataValues, []*
 			case dv.HasLib():
 				libraryValues = append(libraryValues, dv)
 			case values == nil:
+				// Confirmed presence of non lib data value
+				// if schema is a NullSchema, error in due to root lvl data value with no root lvl schema
+				err := o.loader.schema.ValidateWithValues(1)
+				if err != nil {
+					return nil, nil, err
+				}
+
 				values = valuesDoc
 			default:
 				var err error
@@ -99,7 +106,7 @@ func (o DataValuesPreProcessing) templateFile(fileInLib *FileInLibrary) ([]*yaml
 		return nil, err
 	}
 
-	if _, ok := o.loader.schema.(*schema.AnySchema); !ok {
+	if _, ok := o.loader.schema.(*schema.DocumentSchema); ok {
 		var outerTypeCheck yamlmeta.TypeCheck
 		// Skip first document because the parser inserts a new doc start at the beginning of every doc
 		for _, doc := range resultDocSet.Items[1:] {

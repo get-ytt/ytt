@@ -83,10 +83,6 @@ func (ll *LibraryLoader) Values(valuesOverlays []*DataValues, schema Schema) (*D
 		return nil, nil, err
 	}
 
-	err = schema.ValidateWithValues(len(valuesFiles))
-	if err != nil {
-		return nil, nil, err
-	}
 	dvpp := DataValuesPreProcessing{
 		valuesFiles:           valuesFiles,
 		valuesOverlays:        valuesOverlays,

@@ -565,39 +565,43 @@ vpc: #@ data.values.vpc
 }
 
 func TestSchemaInLibraryModule(t *testing.T) {
-	configTplData := []byte(`
+	opts := cmdtpl.NewOptions()
+	opts.SchemaEnabled = true
+	t.Run("eval respects schema as initial data value", func(t *testing.T) {
+		configTplData := []byte(`
 #@ load("@ytt:template", "template")
 #@ load("@ytt:library", "library")
 --- #@ template.replace(library.get("lib").eval())`)
 
-	valuesData := []byte(`
+		valuesData := []byte(`
 #@library/ref "@lib"
 #@data/values
 ---
 foo: 7
 `)
 
-	libConfigTplData := []byte(`
+		libConfigTplData := []byte(`
 #@ load("@ytt:data", "data")
 ---
 foo: #@ data.values.foo`)
 
-	libSchemaData := []byte(`
+		libSchemaData := []byte(`
 #@schema/match data_values=True
 ---
 foo: 42`)
 
-	expectedYAMLTplData := `foo: 7
+		expectedYAMLTplData := `foo: 7
 `
 
-	filesToProcess := files.NewSortedFiles([]*files.File{
-		files.MustNewFileFromSource(files.NewBytesSource("config.yml", configTplData)),
-		files.MustNewFileFromSource(files.NewBytesSource("values.yml", valuesData)),
-		files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/config2.yml", libConfigTplData)),
-		files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/schema.yml", libSchemaData)),
-	})
+		filesToProcess := files.NewSortedFiles([]*files.File{
+			files.MustNewFileFromSource(files.NewBytesSource("config.yml", configTplData)),
+			files.MustNewFileFromSource(files.NewBytesSource("values.yml", valuesData)),
+			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/config2.yml", libConfigTplData)),
+			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/schema.yml", libSchemaData)),
+		})
 
-	runAndCompare(t, filesToProcess, expectedYAMLTplData)
+		assertYTTWorkflowSucceedsWithOutput(t, filesToProcess, expectedYAMLTplData, opts)
+	})
 }
 
 func TestNoSchemaProvided(t *testing.T) {
