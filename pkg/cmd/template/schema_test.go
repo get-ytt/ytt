@@ -567,7 +567,7 @@ vpc: #@ data.values.vpc
 func TestSchemaInLibraryModule(t *testing.T) {
 	opts := cmdtpl.NewOptions()
 	opts.SchemaEnabled = true
-	t.Run("eval respects schema as initial data value", func(t *testing.T) {
+	t.Run("eval respects schema as initial data value (Declarative Schema-Conforming Data Value)", func(t *testing.T) {
 		configTplData := []byte(`
 #@ load("@ytt:template", "template")
 #@ load("@ytt:library", "library")
@@ -601,6 +601,126 @@ foo: 42`)
 		})
 
 		assertYTTWorkflowSucceedsWithOutput(t, filesToProcess, expectedYAMLTplData, opts)
+	})
+	t.Run("eval gives schema typecheck error (Declarative Schema-Non-Conforming Data Value)", func(t *testing.T) {
+		configTplData := []byte(`
+#@ load("@ytt:template", "template")
+#@ load("@ytt:library", "library")
+--- #@ template.replace(library.get("lib").eval())`)
+
+		valuesData := []byte(`
+#@library/ref "@lib"
+#@data/values
+---
+foo: bar
+`)
+
+		libConfigTplData := []byte(`
+#@ load("@ytt:data", "data")
+---
+foo: #@ data.values.foo`)
+
+		libSchemaData := []byte(`
+#@schema/match data_values=True
+---
+foo: 42`)
+
+		filesToProcess := files.NewSortedFiles([]*files.File{
+			files.MustNewFileFromSource(files.NewBytesSource("config.yml", configTplData)),
+			files.MustNewFileFromSource(files.NewBytesSource("values.yml", valuesData)),
+			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/config2.yml", libConfigTplData)),
+			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/schema.yml", libSchemaData)),
+		})
+
+		expectedErr := `
+- library.eval: Evaluating library 'lib': Overlaying data values (in following order: additional data values): 
+    in <toplevel>
+      config.yml:4 | --- #@ template.replace(library.get("lib").eval())
+
+    reason:
+     values.yml:5 | foo: bar
+                  |
+                  | TYPE MISMATCH - the value of this item is not what schema expected:
+                  |      found: string
+                  |   expected: integer (by _ytt_lib/lib/schema.yml:4)
+     
+     `
+		assertYTTWorkflowFailsWithErrorMessage(t, filesToProcess, expectedErr, opts)
+	})
+	t.Run("with_data_values respects schema as initial data value (Programmatic Schema-Conforming Data Value)", func(t *testing.T) {
+		configTplData := []byte(`
+#@ load("@ytt:template", "template")
+#@ load("@ytt:library", "library")
+---
+#@ def dvs_from_root():
+#@overlay/match missing_ok=True
+foo: from "root" library
+#@ end
+--- #@ template.replace(library.get("lib").with_data_values(dvs_from_root()).eval())`)
+
+		libConfigTplData := []byte(`
+#@ load("@ytt:data", "data")
+---
+foo: #@ data.values.foo`)
+
+		libSchemaData := []byte(`
+#@schema/match data_values=True
+---
+foo: ""`)
+
+		expectedYAMLTplData := `foo: from "root" library
+`
+
+		filesToProcess := files.NewSortedFiles([]*files.File{
+			files.MustNewFileFromSource(files.NewBytesSource("config.yml", configTplData)),
+			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/config2.yml", libConfigTplData)),
+			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/schema.yml", libSchemaData)),
+		})
+
+		assertYTTWorkflowSucceedsWithOutput(t, filesToProcess, expectedYAMLTplData, opts)
+	})
+	t.Run("with_data_values gives schema typcheck error (Programmatic Schema-Non-Conforming Data Value)", func(t *testing.T) {
+		configTplData := []byte(`
+#@ load("@ytt:template", "template")
+#@ load("@ytt:library", "library")
+---
+#@ def dvs_from_root():
+#@overlay/match missing_ok=True
+foo: 13
+#@ end
+--- #@ template.replace(library.get("lib").with_data_values(dvs_from_root()).eval())`)
+
+		libConfigTplData := []byte(`
+#@ load("@ytt:data", "data")
+---
+foo: #@ data.values.foo`)
+
+		libSchemaData := []byte(`
+#@schema/match data_values=True
+---
+foo: ""`)
+
+		expectedErr := `
+- library.eval: Evaluating library 'lib': Overlaying data values (in following order: additional data values): 
+    in <toplevel>
+      config.yml:9 | --- #@ template.replace(library.get("lib").with_data_values(dvs_from_root()).eval())
+
+    reason:
+     config.yml:7 | foo: 13
+                  |
+                  | TYPE MISMATCH - the value of this item is not what schema expected:
+                  |      found: integer
+                  |   expected: string (by _ytt_lib/lib/schema.yml:4)
+     
+     `
+
+		filesToProcess := files.NewSortedFiles([]*files.File{
+			files.MustNewFileFromSource(files.NewBytesSource("config.yml", configTplData)),
+			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/config2.yml", libConfigTplData)),
+			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/schema.yml", libSchemaData)),
+		})
+
+		assertYTTWorkflowFailsWithErrorMessage(t, filesToProcess, expectedErr, opts)
 	})
 }
 

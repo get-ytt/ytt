@@ -56,7 +56,7 @@ func (o DataValuesPreProcessing) apply(files []*FileInLibrary) (*DataValues, []*
 			case dv.HasLib():
 				libraryValues = append(libraryValues, dv)
 			case values == nil:
-				// Confirmed presence of non lib data value
+				// Confirmed presence of non private lib data value
 				// if schema is a NullSchema, error in due to root lvl data value with no root lvl schema
 				err := o.loader.schema.ValidateWithValues(1)
 				if err != nil {
@@ -170,6 +170,22 @@ func (o DataValuesPreProcessing) overlayValuesOverlays(valuesDoc *yamlmeta.Docum
 		}
 	}
 
+	if _, ok := o.loader.schema.(*schema.DocumentSchema); ok {
+		// loop through values overlays to ensure they conform to schema
+		for _, dv := range o.valuesOverlays {
+			var typeCheck yamlmeta.TypeCheck
+
+			typeCheck = o.loader.schema.AssignType(dv.Doc)
+			if len(typeCheck.Violations) > 0 {
+				return nil, typeCheck
+			}
+
+			typeCheck = dv.Doc.Check()
+			if len(typeCheck.Violations) > 0 {
+				return nil, typeCheck
+			}
+		}
+	}
 	var result *yamlmeta.Document
 
 	// by default return itself
