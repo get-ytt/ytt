@@ -73,10 +73,6 @@ func NewMapType(m *yamlmeta.Map) (*MapType, error) {
 		}
 		mapType.Items = append(mapType.Items, mapItemType)
 	}
-	annotations := template.NewAnnotations(m)
-	if _, nullable := annotations[AnnotationSchemaNullable]; nullable {
-		mapType.Items = nil
-	}
 
 	return mapType, nil
 }
