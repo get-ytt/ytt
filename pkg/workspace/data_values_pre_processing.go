@@ -66,10 +66,30 @@ func (o DataValuesPreProcessing) apply(files []*FileInLibrary) (*DataValues, []*
 				values = valuesDoc
 			default:
 				var err error
+
+
+				// if schema can be case as a DocumentSchema
+				// Throw in a match_missing_ok=True on child defaults at the top of dv.Doc
+
+
 				values, err = o.overlay(values, dv.Doc)
 				if err != nil {
 					return nil, nil, err
 				}
+			}
+		}
+
+		if _, ok := o.loader.schema.(*schema.DocumentSchema); ok {
+			outerTypeCheck := o.loader.schema.AssignType(values)
+			if len(outerTypeCheck.Violations) > 0 {
+				return nil, nil, outerTypeCheck
+			}
+
+			typeCheck := values.Check()
+			outerTypeCheck.Violations = append(outerTypeCheck.Violations, typeCheck.Violations...)
+
+			if len(outerTypeCheck.Violations) > 0 {
+				return nil, nil, outerTypeCheck
 			}
 		}
 	}
@@ -104,23 +124,6 @@ func (o DataValuesPreProcessing) templateFile(fileInLib *FileInLibrary) ([]*yaml
 	_, resultDocSet, err := o.loader.EvalYAML(libraryCtx, fileInLib.File)
 	if err != nil {
 		return nil, err
-	}
-
-	if _, ok := o.loader.schema.(*schema.DocumentSchema); ok {
-		var outerTypeCheck yamlmeta.TypeCheck
-		// Skip first document because the parser inserts a new doc start at the beginning of every doc
-		for _, doc := range resultDocSet.Items[1:] {
-			outerTypeCheck = o.loader.schema.AssignType(doc)
-			if len(outerTypeCheck.Violations) > 0 {
-				return resultDocSet.Items, outerTypeCheck
-			}
-
-			typeCheck := doc.Check()
-			outerTypeCheck.Violations = append(outerTypeCheck.Violations, typeCheck.Violations...)
-		}
-		if len(outerTypeCheck.Violations) > 0 {
-			return resultDocSet.Items, outerTypeCheck
-		}
 	}
 
 	tplOpts := yamltemplate.MetasOpts{IgnoreUnknown: o.IgnoreUnknownComments}

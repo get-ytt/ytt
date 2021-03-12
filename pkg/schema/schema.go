@@ -183,6 +183,10 @@ func setDefaultValues(node yamlmeta.Node) {
 			setDefaultValues(value)
 		}
 	case *yamlmeta.MapItem:
+		anns := template.NewAnnotations(typedNode)
+		if anns.Has(AnnotationSchemaNullable) {
+			typedNode.Value = nil
+		}
 		if valueAsANode, ok := typedNode.Value.(yamlmeta.Node); ok {
 			setDefaultValues(valueAsANode)
 		}

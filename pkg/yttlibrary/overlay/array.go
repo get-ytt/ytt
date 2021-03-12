@@ -43,6 +43,8 @@ func (o Op) mergeArrayItem(
 		}
 		if replace {
 			leftArray.Items[leftIdx].Value = newItem.Value
+			//todo: should we be setting the position elsewhere?
+			leftArray.Items[leftIdx].Position = newItem.Position
 		}
 	}
 

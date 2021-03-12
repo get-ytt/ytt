@@ -22,10 +22,14 @@ type Op struct {
 }
 
 func (o Op) Apply() (interface{}, error) {
+	return o.ApplyWithDefaults(NewEmptyMatchChildDefaultsAnnotation())
+}
+
+func (o Op) ApplyWithDefaults(ann MatchChildDefaultsAnnotation) (interface{}, error) {
 	leftObj := yamlmeta.NewASTFromInterface(o.Left)
 	rightObj := yamlmeta.NewASTFromInterface(o.Right)
 
-	_, err := o.apply(leftObj, rightObj, NewEmptyMatchChildDefaultsAnnotation())
+	_, err := o.apply(leftObj, rightObj, ann)
 	if err != nil {
 		return nil, err
 	}
