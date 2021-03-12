@@ -10,6 +10,7 @@ import (
 	"github.com/k14s/starlark-go/starlark"
 	"github.com/k14s/ytt/pkg/filepos"
 	"github.com/k14s/ytt/pkg/schema"
+	"github.com/k14s/ytt/pkg/template"
 	"github.com/k14s/ytt/pkg/yamlmeta"
 	"github.com/k14s/ytt/pkg/yamltemplate"
 	yttoverlay "github.com/k14s/ytt/pkg/yttlibrary/overlay"
@@ -67,10 +68,19 @@ func (o DataValuesPreProcessing) apply(files []*FileInLibrary) (*DataValues, []*
 			default:
 				var err error
 
-
-				// if schema can be case as a DocumentSchema
-				// Throw in a match_missing_ok=True on child defaults at the top of dv.Doc
-
+				if _, ok := o.loader.schema.(*schema.DocumentSchema); ok {
+					anns := template.NewAnnotations(dv.Doc)
+					_, defaultsSetAlready := anns[yttoverlay.AnnotationMatchChildDefaults]
+					if !defaultsSetAlready {
+						anns[yttoverlay.AnnotationMatchChildDefaults] = template.NodeAnnotation{
+							Kwargs: []starlark.Tuple{{
+								starlark.String(yttoverlay.MatchAnnotationKwargMissingOK),
+								starlark.Bool(true),
+							}},
+						}
+					}
+					dv.Doc.SetAnnotations(anns)
+				}
 
 				values, err = o.overlay(values, dv.Doc)
 				if err != nil {
