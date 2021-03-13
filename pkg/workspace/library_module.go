@@ -321,7 +321,7 @@ func (l *libraryValue) libraryValues(ll *LibraryLoader, schema Schema) (*DataVal
 	for _, dv := range l.dataValuess {
 		matchingDVs := dv.UsedInLibrary(LibRefPiece{Path: l.path, Alias: l.alias})
 		if matchingDVs != nil {
-			if matchingDVs.HasLib() {
+			if matchingDVs.HasLibRef() {
 				childDVss = append(childDVss, matchingDVs)
 			} else {
 				if matchingDVs.AfterLibMod {

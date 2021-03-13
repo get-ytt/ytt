@@ -103,7 +103,7 @@ func (dvd *DataValues) Desc() string {
 		strings.Join(desc, dvsLibrarySep), dvd.Doc.Position.AsString())
 }
 
-func (dvd *DataValues) HasLib() bool { return len(dvd.libRef) > 0 }
+func (dvd *DataValues) HasLibRef() bool { return len(dvd.libRef) > 0 }
 
 func (dvd *DataValues) UsedInLibrary(expectedRefPiece LibRefPiece) *DataValues {
 	if len(dvd.libRef) == 0 {

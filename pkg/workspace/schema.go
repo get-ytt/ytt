@@ -9,7 +9,7 @@ import (
 
 type Schema interface {
 	AssignType(typeable yamlmeta.Typeable) yamlmeta.TypeCheck
-	AsDataValue() *yamlmeta.Document
+	DefaultDataValues() *yamlmeta.Document
 	ValidateWithValues(valuesFilesCount int) error
 }
 
