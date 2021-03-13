@@ -39,82 +39,89 @@ func (o DataValuesPreProcessing) Apply() (*DataValues, []*DataValues, error) {
 }
 
 func (o DataValuesPreProcessing) apply(files []*FileInLibrary) (*DataValues, []*DataValues, error) {
-	values := o.loader.schema.AsDataValue()
-	var libraryValues []*DataValues
-	for _, fileInLib := range files {
-		valuesDocs, err := o.templateFile(fileInLib)
-		if err != nil {
-			return nil, nil, fmt.Errorf("Templating file '%s': %s", fileInLib.File.RelativePath(), err)
-		}
+	_, schemaEnabled := o.loader.schema.(*schema.DocumentSchema)
 
-		for _, valuesDoc := range valuesDocs {
-			dv, err := NewDataValues(valuesDoc)
+	allDvs, err := o.collectDataValuesDocs(files)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// merge all Data Values YAML documents into one
+	var dvsForOtherLibraries []*DataValues
+	var dataValuesDoc *yamlmeta.Document
+	for _, dv := range allDvs {
+		switch {
+		case dv.HasLib():
+			dvsForOtherLibraries = append(dvsForOtherLibraries, dv)
+		case dataValuesDoc == nil:
+			err := o.loader.schema.ValidateWithValues(1)
 			if err != nil {
 				return nil, nil, err
 			}
 
-			switch {
-			case dv.HasLib():
-				libraryValues = append(libraryValues, dv)
-			case values == nil:
-				// Confirmed presence of non private lib data value
-				// if schema is a NullSchema, error in due to root lvl data value with no root lvl schema
-				err := o.loader.schema.ValidateWithValues(1)
-				if err != nil {
-					return nil, nil, err
-				}
-
-				values = valuesDoc
-			default:
-				var err error
-
-				if _, ok := o.loader.schema.(*schema.DocumentSchema); ok {
-					anns := template.NewAnnotations(dv.Doc)
-					_, defaultsSetAlready := anns[yttoverlay.AnnotationMatchChildDefaults]
-					if !defaultsSetAlready {
-						anns[yttoverlay.AnnotationMatchChildDefaults] = template.NodeAnnotation{
-							Kwargs: []starlark.Tuple{{
-								starlark.String(yttoverlay.MatchAnnotationKwargMissingOK),
-								starlark.Bool(true),
-							}},
-						}
-					}
-					dv.Doc.SetAnnotations(anns)
-				}
-
-				values, err = o.overlay(values, dv.Doc)
-				if err != nil {
-					return nil, nil, err
-				}
+			dataValuesDoc = dv.Doc
+		default:
+			if schemaEnabled {
+				o.annotateWithDefaultMissingOk(dv.Doc)
+			}
+			dataValuesDoc, err = o.overlay(dataValuesDoc, dv.Doc)
+			if err != nil {
+				return nil, nil, err
 			}
 		}
-
-		if _, ok := o.loader.schema.(*schema.DocumentSchema); ok {
-			outerTypeCheck := o.loader.schema.AssignType(values)
-			if len(outerTypeCheck.Violations) > 0 {
-				return nil, nil, outerTypeCheck
-			}
-
-			typeCheck := values.Check()
-			outerTypeCheck.Violations = append(outerTypeCheck.Violations, typeCheck.Violations...)
-
-			if len(outerTypeCheck.Violations) > 0 {
-				return nil, nil, outerTypeCheck
+		if schemaEnabled {
+			typeCheck := o.typeAndCheck(dataValuesDoc)
+			if len(typeCheck.Violations) > 0 {
+				return nil, nil, typeCheck
 			}
 		}
 	}
 
-	values, err := o.overlayValuesOverlays(values)
+	if dataValuesDoc == nil {
+		dataValuesDoc = o.NewEmptyDataValuesDocument()
+	}
+	dataValues, err := NewDataValues(dataValuesDoc)
 	if err != nil {
 		return nil, nil, err
 	}
+	return dataValues, dvsForOtherLibraries, nil
+}
 
-	dv, err := NewDataValues(values)
-	if err != nil {
-		return nil, nil, err
+func (o DataValuesPreProcessing) typeAndCheck(dataValuesDoc *yamlmeta.Document) (chk yamlmeta.TypeCheck) {
+	chk = o.loader.schema.AssignType(dataValuesDoc)
+	if len(chk.Violations) > 0 {
+		return
 	}
 
-	return dv, libraryValues, nil
+	typeCheck := dataValuesDoc.Check()
+	chk.Violations = append(chk.Violations, typeCheck.Violations...)
+	return
+}
+
+func (o DataValuesPreProcessing) collectDataValuesDocs(files []*FileInLibrary) ([]*DataValues, error) {
+	var allDvs []*DataValues
+	if defaults := o.loader.schema.AsDataValue(); defaults != nil {
+		dv, err := NewDataValues(defaults)
+		if err != nil {
+			return nil, err
+		}
+		allDvs = append(allDvs, dv)
+	}
+	for _, fileInLib := range files {
+		docs, err := o.templateFile(fileInLib)
+		if err != nil {
+			return nil, fmt.Errorf("Templating file '%s': %s", fileInLib.File.RelativePath(), err)
+		}
+		for _, doc := range docs {
+			dv, err := NewDataValues(doc)
+			if err != nil {
+				return nil, err
+			}
+			allDvs = append(allDvs, dv)
+		}
+	}
+	allDvs = append(allDvs, o.valuesOverlays...)
+	return allDvs, nil
 }
 
 func (o DataValuesPreProcessing) allFileDescs(files []*FileInLibrary) string {
@@ -174,46 +181,23 @@ func (o DataValuesPreProcessing) overlay(valuesDoc, newValuesDoc *yamlmeta.Docum
 	return newLeft.(*yamlmeta.DocumentSet).Items[0], nil
 }
 
-func (o DataValuesPreProcessing) overlayValuesOverlays(valuesDoc *yamlmeta.Document) (*yamlmeta.Document, error) {
-	if valuesDoc == nil {
-		// TODO get rid of assumption that data values is a map?
-		valuesDoc = &yamlmeta.Document{
-			Value:    &yamlmeta.Map{},
-			Position: filepos.NewUnknownPosition(),
+func (o DataValuesPreProcessing) annotateWithDefaultMissingOk(doc *yamlmeta.Document) {
+	anns := template.NewAnnotations(doc)
+	_, defaultsSetAlready := anns[yttoverlay.AnnotationMatchChildDefaults]
+	if !defaultsSetAlready {
+		anns[yttoverlay.AnnotationMatchChildDefaults] = template.NodeAnnotation{
+			Kwargs: []starlark.Tuple{{
+				starlark.String(yttoverlay.MatchAnnotationKwargMissingOK),
+				starlark.Bool(true),
+			}},
 		}
 	}
+	doc.SetAnnotations(anns)
+}
 
-	if _, ok := o.loader.schema.(*schema.DocumentSchema); ok {
-		// loop through values overlays to ensure they conform to schema
-		for _, dv := range o.valuesOverlays {
-			var typeCheck yamlmeta.TypeCheck
-
-			typeCheck = o.loader.schema.AssignType(dv.Doc)
-			if len(typeCheck.Violations) > 0 {
-				return nil, typeCheck
-			}
-
-			typeCheck = dv.Doc.Check()
-			if len(typeCheck.Violations) > 0 {
-				return nil, typeCheck
-			}
-		}
+func (o DataValuesPreProcessing) NewEmptyDataValuesDocument() *yamlmeta.Document {
+	return &yamlmeta.Document{
+		Value:    nil,
+		Position: filepos.NewUnknownPosition(),
 	}
-	var result *yamlmeta.Document
-
-	// by default return itself
-	result = valuesDoc
-
-	for _, valuesOverlay := range o.valuesOverlays {
-		var err error
-
-		result, err = o.overlay(result, valuesOverlay.Doc)
-		if err != nil {
-			// TODO improve error message?
-			return nil, fmt.Errorf("Overlaying additional data values on top of "+
-				"data values from files (marked as @data/values): %s", err)
-		}
-	}
-
-	return result, nil
 }
