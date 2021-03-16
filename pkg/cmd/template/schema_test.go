@@ -586,7 +586,7 @@ in_library: 0`)
 
 		assertSucceeds(t, filesToProcess, expectedYAMLTplData, opts)
 	})
-	t.Run("when data values are programmatically set on a library, they are only checked by that library's schema", func(t *testing.T) {
+	t.Run("when data values are programmatically set on a library, they are checked by that library's schema", func(t *testing.T) {
 		configYAML := []byte(`
 #@ load("@ytt:template", "template")
 #@ load("@ytt:library", "library")
@@ -595,11 +595,6 @@ in_library: 0`)
 foo: from "root" library
 #@ end
 --- #@ template.replace(library.get("lib").with_data_values(dvs_from_root()).eval())`)
-
-		schemaYAML := []byte(`
-#@schema/match data_values=True
----
-foo: 0`)
 
 		libConfigYAML := []byte(`
 #@ load("@ytt:data", "data")
@@ -616,8 +611,54 @@ foo: ""`)
 
 		filesToProcess := files.NewSortedFiles([]*files.File{
 			files.MustNewFileFromSource(files.NewBytesSource("config.yml", configYAML)),
-			files.MustNewFileFromSource(files.NewBytesSource("schema.yml", schemaYAML)),
 			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/config.yml", libConfigYAML)),
+			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/schema.yml", libSchemaYAML)),
+		})
+
+		assertSucceeds(t, filesToProcess, expectedYAMLTplData, opts)
+	})
+	t.Run("when data values are programmatically exported from a library, they are checked by that library's schema", func(t *testing.T) {
+		configYAML := []byte(`
+#@ load("@ytt:library", "library")
+--- #@ library.get("lib").data_values()`)
+
+		libSchemaYAML := []byte(`
+#@schema/match data_values=True
+---
+foo: "from library"`)
+
+		expectedYAMLTplData := `foo: from library
+`
+
+		filesToProcess := files.NewSortedFiles([]*files.File{
+			files.MustNewFileFromSource(files.NewBytesSource("config.yml", configYAML)),
+			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/schema.yml", libSchemaYAML)),
+		})
+
+		assertSucceeds(t, filesToProcess, expectedYAMLTplData, opts)
+	})
+	t.Run("when symbols are programmatically exported from a library, the library's schema is checked", func(t *testing.T) {
+		configYAML := []byte(`
+#@ load("@ytt:library", "library")
+#@ load("@ytt:template", "template")
+--- #@ library.get("lib").export("exported_func")()`)
+
+		libConfigYAML := []byte(`
+#@ load("@ytt:data", "data")
+---
+#@ def exported_func(): return data.values`)
+
+		libSchemaYAML := []byte(`
+#@schema/match data_values=True
+---
+foo: "value exported from library"`)
+
+		expectedYAMLTplData := `foo: value exported from library
+`
+
+		filesToProcess := files.NewSortedFiles([]*files.File{
+			files.MustNewFileFromSource(files.NewBytesSource("config.yml", configYAML)),
+			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/config.lib.yml", libConfigYAML)),
 			files.MustNewFileFromSource(files.NewBytesSource("_ytt_lib/lib/schema.yml", libSchemaYAML)),
 		})
 
@@ -803,7 +844,7 @@ func assertSucceeds(t *testing.T, filesToProcess []*files.File, expectedOut stri
 	}
 
 	if len(out.Files) != 1 {
-		t.Errorf("Expected number of output files to be 1, but was: %d", len(out.Files))
+		t.Fatalf("Expected number of output files to be 1, but was: %d", len(out.Files))
 	}
 
 	if string(out.Files[0].Bytes()) != expectedOut {
